@@ -72,10 +72,10 @@ sudo ./pdm
 
 ### Verification
 ```bash
-# Check TC filter
+# Check TC filter + Change wlo1 to respective interface
 tc filter show dev wlo1 egress
 
-# Monitor packets
+# Monitor packets + Change wlo1 to respective interface
 sudo tcpdump -ni wlo1 'ip6 and udp port 53' -XX
 ```
 
@@ -115,6 +115,7 @@ sudo tcpdump -ni wlo1 'ip6 and udp port 53' -XX
 
 For eBPF implementation:
 ```bash
+# Change wlo1 to respective interface
 sudo tc qdisc del dev wlo1 clsact 2>/dev/null
 ```
 
