@@ -6,6 +6,7 @@
 #include <linux/udp.h>
 #include <linux/in.h>
 #include <linux/pkt_cls.h>
+#include "../include/pdm_common.h"
 
 #define DNS_PORT 53
 
@@ -24,6 +25,15 @@ struct {
     __type(value, __u64);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dns_requests SEC(".maps");
+
+// Add the last_psn map definition
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct flow_key);
+    __type(value, __u32);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} last_psn SEC(".maps");
 
 SEC("tc/ingress")
 int dns_request_handler(struct __sk_buff *skb) {
@@ -63,6 +73,19 @@ int dns_request_handler(struct __sk_buff *skb) {
     // Update map with current timestamp
     __u64 ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&dns_requests, &key, &ts, BPF_ANY);
+
+    if (ip6h->nexthdr == IPPROTO_DSTOPTS) {
+        struct ipv6_opt_hdr *dopt = (void *)(ip6h + 1);
+        if ((void *)(dopt + 1) + sizeof(struct pdm_metrics) <= data_end) {
+            struct pdm_metrics *pdm = (void *)(dopt + 1);
+            if (pdm->type == PDM_OPT_TYPE) {
+                // Store the PSN
+                __u32 received_psn = bpf_ntohs(pdm->psntp);
+                bpf_map_update_elem(&last_psn, &key, &received_psn, BPF_ANY);
+            }
+        }
+    }
+
     return TC_ACT_OK;
 }
 

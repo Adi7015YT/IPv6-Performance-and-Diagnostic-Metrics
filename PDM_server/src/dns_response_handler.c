@@ -6,21 +6,7 @@
 #include <linux/udp.h>
 #include <linux/pkt_cls.h>
 #include <linux/in.h>
-
-#define PDM_OPT_TYPE 0x0F
-#define PDM_OPT_LEN 10
-#define SCALE_FACTOR 20
-
-struct pdm_metrics {
-    __u8 type;
-    __u8 len;
-    __u8 scale_dtlr;
-    __u8 scale_dtls;
-    __be16 psntp;
-    __be16 psnlr;
-    __be16 deltatlr;
-    __be16 deltatls;
-} __attribute__((packed));
+#include "../include/pdm_common.h"
 
 struct flow_key {
     struct in6_addr saddr;
@@ -43,6 +29,14 @@ struct {
     __type(key, __u32);
     __type(value, __u32);
 } psn_counter SEC(".maps");
+
+// Add new map for tracking last received PSN
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 8192);
+    __type(key, struct flow_key);
+    __type(value, __u32);
+} last_psn SEC(".maps");
 
 static __always_inline __u32 get_next_psn() {
     __u32 key = 0, *val;
@@ -73,6 +67,17 @@ int handle_egress(struct __sk_buff *skb) {
         .dport = udp->source,
         .protocol = IPPROTO_UDP
     };
+
+    // Look for PDM in incoming packet
+    struct ipv6_opt_hdr *in_dopt = (void *)(ip6 + 1);
+    if (ip6->nexthdr == IPPROTO_DSTOPTS && 
+        (void *)(in_dopt + 1) + sizeof(struct pdm_metrics) <= data_end) {
+        struct pdm_metrics *in_pdm = (void *)(in_dopt + 1);
+        if (in_pdm->type == PDM_OPT_TYPE) {
+            __u32 received_psn = bpf_ntohs(in_pdm->psntp);
+            bpf_map_update_elem(&last_psn, &req_key, &received_psn, BPF_ANY);
+        }
+    }
 
     __u64 *req_ts = bpf_map_lookup_elem(&dns_requests, &req_key);
     if (!req_ts) return TC_ACT_OK;
@@ -109,16 +114,21 @@ int handle_egress(struct __sk_buff *skb) {
     pdm->scale_dtlr = SCALE_FACTOR;
     pdm->scale_dtls = 0;  // Initialize to 0
     pdm->psntp = bpf_htons(psn);
-    pdm->psnlr = 0;  // Initialize to 0
+    
+    // Set PSNLR from tracked value
+    __u32 *last_received_psn = bpf_map_lookup_elem(&last_psn, &req_key);
+    pdm->psnlr = last_received_psn ? bpf_htons(*last_received_psn) : 0;
+    
     pdm->deltatlr = bpf_htons(scaled_delta);
     pdm->deltatls = 0;  // Initialize to 0
 
+    // Updated padding implementation
     __u8 *pad = (void *)(pdm + 1);
-    if ((void *)(pad + 2) > data_end)  // Check bounds before accessing pad
+    if ((void *)(pad + 2) > data_end)
         return TC_ACT_OK;
-        
-    pad[0] = 0x01; // PadN
-    pad[1] = 0x00; // PadN length (0 means 2 bytes of padding)
+    
+    pad[0] = 0x00;  // Pad1
+    pad[1] = 0x00;  // Pad1
     
     ip6->nexthdr = IPPROTO_DSTOPTS;
     __u16 payload_len = bpf_ntohs(ip6->payload_len) + 
