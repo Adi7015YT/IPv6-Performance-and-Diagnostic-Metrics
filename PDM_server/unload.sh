@@ -18,6 +18,7 @@ ip link set dev $INTERFACE xdp off 2>/dev/null || true
 
 # Detach and remove TC filter
 echo "Removing TC filter from $INTERFACE..."
+tc filter del dev ens5 ingress 2>/dev/null || true
 tc filter del dev $INTERFACE egress 2>/dev/null || true
 tc qdisc del dev $INTERFACE clsact 2>/dev/null || true
 

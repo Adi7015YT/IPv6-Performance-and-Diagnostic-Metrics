@@ -37,14 +37,10 @@ if [ ! -f obj/dns_response_handler.o ]; then
     exit 1
 fi
 
-# Load and attach DNS request handler (XDP program)
-echo "Loading and attaching DNS request handler to XDP on $INTERFACE..."
-ip link set dev $INTERFACE xdp obj obj/dns_request_handler.o sec xdp
-
 # Load and attach DNS response handler (TC egress program)
-echo "Setting up TC for egress classifier on $INTERFACE..."
+echo "Setting up TC for egress/ingress classifier on $INTERFACE..."
 tc qdisc add dev $INTERFACE clsact 2>/dev/null || tc qdisc change dev $INTERFACE clsact
-
+tc filter add dev $INTERFACE ingress bpf da obj obj/dns_request_handler.o sec tc/ingress
 echo "Attaching DNS response handler to TC egress..."
 tc filter add dev $INTERFACE egress bpf direct-action obj obj/dns_response_handler.o sec tc/egress
 

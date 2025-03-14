@@ -5,6 +5,7 @@
 #include <linux/ipv6.h>
 #include <linux/udp.h>
 #include <linux/in.h>
+#include <linux/pkt_cls.h>
 
 #define DNS_PORT 53
 
@@ -24,31 +25,31 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } dns_requests SEC(".maps");
 
-SEC("xdp")
-int dns_request_handler(struct xdp_md *ctx) {
-    void *data = (void *)(long)ctx->data;
-    void *data_end = (void *)(long)ctx->data_end;
+SEC("tc/ingress")
+int dns_request_handler(struct __sk_buff *skb) {
+    void *data = (void *)(long)skb->data;
+    void *data_end = (void *)(long)skb->data_end;
 
     // Parse Ethernet header
     struct ethhdr *eth = data;
     if (data + sizeof(*eth) > data_end)
-        return XDP_PASS;
+        return TC_ACT_OK;
     if (eth->h_proto != bpf_htons(ETH_P_IPV6))
-        return XDP_PASS;
+        return TC_ACT_OK;
 
     // Parse IPv6 header
-    struct ipv6hdr *ip6h = (struct ipv6hdr *)(eth + 1);
+    struct ipv6hdr *ip6h = (void *)(eth + 1);
     if ((void *)(ip6h + 1) > data_end)
-        return XDP_PASS;
+        return TC_ACT_OK;
     if (ip6h->nexthdr != IPPROTO_UDP)
-        return XDP_PASS;
+        return TC_ACT_OK;
 
     // Parse UDP header
-    struct udphdr *udph = (struct udphdr *)(ip6h + 1);
+    struct udphdr *udph = (void *)(ip6h + 1);
     if ((void *)(udph + 1) > data_end)
-        return XDP_PASS;
+        return TC_ACT_OK;
     if (udph->dest != bpf_htons(DNS_PORT))
-        return XDP_PASS;
+        return TC_ACT_OK;
 
     // Extract flow key
     struct flow_key key = {
@@ -62,7 +63,7 @@ int dns_request_handler(struct xdp_md *ctx) {
     // Update map with current timestamp
     __u64 ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&dns_requests, &key, &ts, BPF_ANY);
-    return XDP_PASS;
+    return TC_ACT_OK;
 }
 
 char _license[] SEC("license") = "GPL";
