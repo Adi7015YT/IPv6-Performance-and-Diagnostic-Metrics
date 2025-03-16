@@ -6,33 +6,33 @@ flowchart TB
         BPF["eBPF Program (add_pdm_header)"]
     end
     Net["Network"]
-
+    
     subgraph loader["loader.c"]
         L1["Load BPF Object"]
         L2["Setup TC qdisc"]
         L3["Attach BPF Program"]
     end
-
+    
     subgraph pdm["pdm_ebpf.c"]
         P1["Parse Packet Headers"]
         P2["Filter UDP DNS Traffic"]
         P3["Insert Destination Options"]
         P4["Add PDM Metrics"]
     end
-
-    App -- "1. DNS Query" --> IP
-    IP -- "2. IPv6 Packet" --> TC
-    TC -- "3. Intercept Packet" --> BPF
-
-    BPF -- "4. Parse Headers" --> P1
-    P1 -- "5. Filter Traffic" --> P2
-    P2 -- "6. Make Room" --> P3
-    P3 -- "7. Insert PDM" --> P4
-
-    BPF -- "8. Modified Packet" --> TC
-    TC -- "9. Forward Packet" --> Net
-
-    Net -- "10. Response" --> IP
-    IP -- "11. Deliver to App" --> App
-
-    loader -- "Setup" --> BPF
+    
+    App -->|DNS Query| IP
+    IP -->|IPv6 Packet| TC
+    TC -->|Intercept Packet| BPF
+    
+    BPF -->|Parse Headers| P1
+    P1 -->|Filter Traffic| P2
+    P2 -->|Make Room| P3
+    P3 -->|Insert PDM| P4
+    
+    BPF -->|Modified Packet| TC
+    TC -->|Forward Packet| Net
+    
+    Net -->|Response| IP
+    IP -->|Deliver to App| App
+    
+    loader -->|Setup| BPF
