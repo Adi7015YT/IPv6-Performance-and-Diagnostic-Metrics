@@ -33,7 +33,7 @@ flowchart TD
     Hardware["Network Hardware"]
     
     %% User space interactions
-    App <--> Lib
+    App --> Lib
     Loader --> LibBPF
     Loader --> TC_Tool
     
@@ -45,34 +45,22 @@ flowchart TD
     TC_Tool --> Filter
     
     %% Network stack flow
-    App <--> Socket
-    Socket <--> Transport
-    Transport <--> Network
-    Network <--> Link
-    Link <--> Driver
-    Driver <--> Hardware
+    App -->|Sends DNS Query| Socket
+    Socket -->|Passes to Transport| Transport
+    Transport -->|Encapsulates UDP| Network
+    Network -->|Encapsulates IPv6| Qdisc
+    Qdisc -->|Passes to Classifier| Filter
+    Filter -->|Invokes BPF Program| Program
+    Program -->|Inserts PDM Header| Action
+    Action -->|Forwards Modified Packet| Link
+    Link -->|Sends to Network| Driver
+    Driver -->|Transmits Data| Hardware
     
     %% eBPF hooks
     Filter --> Program
-    Network -- "Egress Path" --> Qdisc
-    Qdisc --> Filter
-    Program -- "Modify Packet" --> Action
-    Action --> Link
-    
-    %% Data sharing
-    Program <--> Maps
+    Program --> Maps
     
     %% Load and attach flow
-    Loader -. "1. Load BPF Object" .-> Program
-    Loader -. "2. Setup TC qdisc" .-> Qdisc
-    Loader -. "3. Attach Program" .-> Filter
-    
-    %% Packet flow annotations
-    Socket -. "1. Application sends DNS query" .-> Transport
-    Transport -. "2. UDP encapsulation" .-> Network
-    Network -. "3. IPv6 encapsulation" .-> Qdisc
-    Qdisc -. "4. Pass to classifier" .-> Filter
-    Filter -. "5. Invoke BPF program" .-> Program
-    Program -. "6. Insert PDM header" .-> Action
-    Action -. "7. Forward modified packet" .-> Link
-    Link -. "8. Send to network" .-> Driver
+    Loader -. "Load BPF Object" .-> Program
+    Loader -. "Setup TC qdisc" .-> Qdisc
+    Loader -. "Attach Program" .-> Filter
